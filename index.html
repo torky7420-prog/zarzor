@@ -7,8 +7,8 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0e5b3a">
 <meta name="mobile-web-app-capable" content="yes">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -38,7 +38,9 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
 .pcard .nm{font-weight:700;font-size:.85rem;margin-top:4px}
 .pcard .st{font-size:.75rem;color:var(--muted)}
 .row{display:flex;gap:8px}.row>*{flex:1}
-.list-item{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:10px;padding:8px;margin-bottom:8px}
+.list-item{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:10px;padding:8px;margin-bottom:8px;flex-wrap:wrap}
+.list-item .meta{min-width:0}
+.list-item button{padding:7px 10px;font-size:0.8rem;flex:0 0 auto}
 .list-item img{width:44px;height:44px;object-fit:cover;border-radius:8px;background:var(--bg)}
 .list-item .meta{flex:1}.list-item .meta .n{font-weight:700}.list-item .meta .s{font-size:.8rem;color:var(--muted)}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end;justify-content:center;z-index:50}
@@ -75,6 +77,7 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
   <h2 style="margin:0 0 6px">Zarzor Store</h2>
   <div id="syncTag" class="tag" style="display:block;margin-bottom:10px">...</div>
   <div class="menu-item" onclick="go('sales')"><span>🛒 تسجيل بيع</span></div>
+  <div class="menu-item" onclick="go('daily')"><span>🧾 اليومية الكاملة</span></div>
   <div class="menu-item mgr-only" onclick="go('dashboard')"><span>📊 لوحة التحكم</span></div>
   <div class="menu-item mgr-only" onclick="go('products')"><span>📦 المنتجات والمخزون</span></div>
   <div class="menu-item mgr-only" onclick="go('returns')"><span>↩️ مرتجعات وإلغاء</span></div>
@@ -97,6 +100,7 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
     <div class="row">
       <button class="btn-o" onclick="openFreeSale()">+ بيع حر</button>
       <button class="btn-o" onclick="go('products')">📦 المنتجات</button>
+      <button class="btn-o" onclick="go('daily')">🧾 اليومية</button>
     </div>
     <div class="row" style="margin-top:8px">
       <input id="searchBox" placeholder="ابحث بالاسم أو التصنيف أو الباركود" oninput="renderProductGrid()">
@@ -105,6 +109,13 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
     <div class="chips" id="catChips"></div>
     <div class="pgrid" id="productGrid"></div>
     <div style="height:60px"></div>
+  </section>
+
+  <!-- DAILY LOG -->
+  <section id="view-daily" class="hide">
+    <h2 style="margin-top:0">اليومية الكاملة</h2>
+    <div class="card"><div class="tag">إجمالي اليوم</div><div class="v" id="dailyTotal" style="font-size:1.3rem;font-weight:800;color:var(--brand2)">0</div></div>
+    <div id="dailyList"></div>
   </section>
 
   <!-- DASHBOARD -->
@@ -276,12 +287,13 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
     <button class="close-x" onclick="closeOverlay('supOverlay')">✕</button>
     <h2>تسجيل توريد</h2>
     <input id="supName" placeholder="اسم المورد">
-    <select id="supProduct"></select>
+    <div id="supItemsList" style="margin-bottom:8px"></div>
+    <button class="btn-o" style="width:100%;margin-bottom:10px" onclick="addSupplierItemRow()">+ إضافة منتج</button>
     <div class="row">
-      <input id="supQty" type="number" placeholder="الكمية">
-      <input id="supCost" type="number" placeholder="سعر التكلفة للوحدة" step="0.01">
+      <div class="card" style="margin:0"><div class="tag">إجمالي التوريد</div><div id="supItemsTotal" style="font-weight:800">0</div></div>
+      <input id="supPaid" type="number" placeholder="المدفوع الآن" step="0.01" value="0" oninput="updateSupTotals()">
     </div>
-    <input id="supPaid" type="number" placeholder="المدفوع الآن" step="0.01" value="0">
+    <div class="tag" style="display:block;margin:6px 0">المبلغ المستحق للمورد: <b id="supRemaining">0</b></div>
     <button class="btn-p" style="width:100%" onclick="saveSupplier()">حفظ التوريد</button>
   </div>
 </div>
@@ -336,7 +348,7 @@ function saveLocal(){try{
   localStorage.setItem('acc_suppliers',JSON.stringify(suppliers));
   localStorage.setItem('acc_audits',JSON.stringify(audits));
 }catch(e){}}
-function renderAll(){renderProductGrid();renderProductList();renderDashboard();renderReturns();renderExpenses();renderDebts();renderSuppliers();renderAuditRows();}
+function renderAll(){renderProductGrid();renderProductList();renderDashboard();renderReturns();renderExpenses();renderDebts();renderSuppliers();renderAuditRows();renderDaily();}
 
 async function initCloud(){
   try{
@@ -363,10 +375,11 @@ async function initCloud(){
 function openMenu(){document.getElementById('menu').classList.add('open');document.getElementById('menuBg').classList.add('open')}
 function closeMenu(){document.getElementById('menu').classList.remove('open');document.getElementById('menuBg').classList.remove('open')}
 function soon(){closeMenu();alert('هذه الشاشة قريبًا في نسخة تالية 🙏')}
-function go(v){closeMenu();['sales','dashboard','products','returns','expenses','debts','suppliers','audit','reports'].forEach(x=>document.getElementById('view-'+x).classList.add('hide'));document.getElementById('view-'+v).classList.remove('hide');
+function go(v){closeMenu();['sales','dashboard','products','returns','expenses','debts','suppliers','audit','reports','daily'].forEach(x=>document.getElementById('view-'+x).classList.add('hide'));document.getElementById('view-'+v).classList.remove('hide');
   if(v==='sales')renderProductGrid(); if(v==='products')renderProductList(); if(v==='dashboard')renderDashboard();
   if(v==='returns')renderReturns(); if(v==='expenses')renderExpenses(); if(v==='debts')renderDebts();
-  if(v==='suppliers')renderSuppliers(); if(v==='audit')renderAuditRows(); if(v==='reports')renderReport();}
+  if(v==='suppliers')renderSuppliers(); if(v==='audit')renderAuditRows(); if(v==='reports')renderReport();
+  if(v==='daily')renderDaily();}
 function openOverlay(id){document.getElementById(id).classList.add('open')}
 function closeOverlay(id){document.getElementById(id).classList.remove('open')}
 
@@ -589,6 +602,61 @@ async function handleImport(ev){
   ev.target.value=''; alert('تم الاستيراد بنجاح');
 }
 
+function isToday(t){ const d=new Date(t); const n=new Date(); return !isNaN(d) && d.toDateString()===n.toDateString(); }
+function renderDaily(){
+  const el=document.getElementById('dailyList'); if(!el) return;
+  const todaySales=sales.filter(s=>s.status!=='cancelled' && isToday(s.time)).slice().reverse();
+  const total=todaySales.reduce((a,s)=>a+s.revenue,0);
+  document.getElementById('dailyTotal').textContent=total.toFixed(2);
+  el.innerHTML= todaySales.length? todaySales.map(s=>`
+    <div class="list-item">
+      <div class="meta"><div class="n">${escapeHtml(s.name)} × ${s.qty}${s.free?' (بيع حر)':''}</div><div class="s">${s.time}</div></div>
+      <div style="font-weight:700">${s.revenue.toFixed(2)}</div>
+      <button class="btn-o" onclick="editSaleLine('${s.id}')">تعديل</button>
+      <button class="btn-d" onclick="deleteSaleLine('${s.id}')">حذف</button>
+    </div>`).join('') : '<p class="muted">لا توجد مبيعات اليوم بعد</p>';
+}
+async function editSaleLine(id){
+  const s=sales.find(x=>x.id===id); if(!s) return;
+  const newQtyStr=prompt('الكمية الجديدة:', s.qty);
+  if(newQtyStr===null) return;
+  const newQty=parseInt(newQtyStr);
+  const newPriceStr=prompt('سعر البيع الجديد:', s.price);
+  if(newPriceStr===null) return;
+  const newPrice=parseFloat(newPriceStr);
+  if(isNaN(newQty)||newQty<1||isNaN(newPrice)||newPrice<0){ alert('أدخل كمية وسعر صحيحين'); return }
+  const p=!s.free ? products.find(x=>x.name===s.name) : null;
+  if(p){
+    const available=p.qty+s.qty; // المتاح بعد إرجاع الكمية القديمة
+    if(newQty>available){ alert('الكمية المطلوبة أكبر من المتاح ('+available+')'); return }
+  }
+  const newRevenue=newPrice*newQty;
+  const newProfit=s.free? newRevenue : (newPrice-s.cost)*newQty;
+  if(cloudDB){
+    try{
+      if(p) await cloudDB.collection('products').doc(p.id).update({qty:p.qty+s.qty-newQty});
+      await cloudDB.collection('sales').doc(id).update({qty:newQty, price:newPrice, revenue:newRevenue, profit:newProfit});
+    }catch(e){ alert('تعذر حفظ التعديل'); return }
+  } else {
+    if(p) p.qty=p.qty+s.qty-newQty;
+    s.qty=newQty; s.price=newPrice; s.revenue=newRevenue; s.profit=newProfit;
+    saveLocal(); renderAll();
+  }
+}
+async function deleteSaleLine(id){
+  const s=sales.find(x=>x.id===id); if(!s) return;
+  if(!confirm('تأكيد حذف هذا البند نهائيًا من اليومية؟ هيرجع المخزون لو كان منتج فعلي.'))return;
+  const p=!s.free ? products.find(x=>x.name===s.name) : null;
+  if(cloudDB){
+    try{
+      await cloudDB.collection('sales').doc(id).delete();
+      if(p) await cloudDB.collection('products').doc(p.id).update({qty:p.qty+s.qty});
+    }catch(e){ alert('تعذر الحذف'); return }
+  } else {
+    sales=sales.filter(x=>x.id!==id); if(p) p.qty+=s.qty; saveLocal(); renderAll();
+  }
+}
+
 function renderReturns(){
   const el=document.getElementById('returnsList'); if(!el) return;
   const active=sales.filter(s=>s.status!=='cancelled').slice(-30).reverse();
@@ -664,39 +732,71 @@ function renderDebts(){
     </div>`).join('') : '<p class="muted">لا توجد ديون مسجلة</p>';
 }
 
-function populateSupplierProductSelect(){
-  const sel=document.getElementById('supProduct'); if(!sel) return;
-  sel.innerHTML='<option value="">-- منتج جديد بالاسم أدناه --</option>'+products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+let supRowCount=0;
+function addSupplierItemRow(name,qty,cost){
+  supRowCount++;
+  const rid='sr'+supRowCount;
+  const div=document.createElement('div');
+  div.className='row'; div.id=rid; div.style.marginBottom='6px';
+  div.innerHTML=`
+    <input placeholder="اسم المنتج" value="${name?escapeHtml(name):''}" class="sup-item-name" oninput="updateSupTotals()">
+    <input type="number" placeholder="كمية" value="${qty||''}" class="sup-item-qty" style="max-width:70px" oninput="updateSupTotals()">
+    <input type="number" placeholder="تكلفة الوحدة" value="${cost||''}" step="0.01" class="sup-item-cost" style="max-width:95px" oninput="updateSupTotals()">
+    <button class="btn-d" style="flex:0 0 auto" onclick="document.getElementById('${rid}').remove();updateSupTotals()">✕</button>`;
+  document.getElementById('supItemsList').appendChild(div);
+}
+function updateSupTotals(){
+  let total=0;
+  document.querySelectorAll('#supItemsList .row').forEach(r=>{
+    const qty=parseFloat(r.querySelector('.sup-item-qty').value)||0;
+    const cost=parseFloat(r.querySelector('.sup-item-cost').value)||0;
+    total+=qty*cost;
+  });
+  document.getElementById('supItemsTotal').textContent=total.toFixed(2);
+  const paid=parseFloat(document.getElementById('supPaid').value)||0;
+  document.getElementById('supRemaining').textContent=Math.max(0,total-paid).toFixed(2);
 }
 function openSupplierForm(){
-  document.getElementById('supName').value='';document.getElementById('supQty').value='';document.getElementById('supCost').value='';document.getElementById('supPaid').value=0;
-  populateSupplierProductSelect(); openOverlay('supOverlay');
+  document.getElementById('supName').value='';
+  document.getElementById('supItemsList').innerHTML='';
+  document.getElementById('supPaid').value=0;
+  addSupplierItemRow();
+  updateSupTotals();
+  openOverlay('supOverlay');
 }
 async function saveSupplier(){
   const supplier=document.getElementById('supName').value.trim();
-  const pid=document.getElementById('supProduct').value;
-  const qty=parseInt(document.getElementById('supQty').value);
-  const cost=parseFloat(document.getElementById('supCost').value);
   const paid=parseFloat(document.getElementById('supPaid').value)||0;
-  if(!supplier||isNaN(qty)||qty<=0||isNaN(cost)){alert('أكمل بيانات التوريد');return}
-  const total=qty*cost;
-  const p=products.find(x=>x.id===pid);
-  const rec={supplier,product:p?p.name:'(منتج جديد)',qty,cost,total,paid,remaining:total-paid,time:new Date().toLocaleString('ar-EG')};
+  const rows=[...document.querySelectorAll('#supItemsList .row')].map(r=>({
+    name:r.querySelector('.sup-item-name').value.trim(),
+    qty:parseInt(r.querySelector('.sup-item-qty').value),
+    cost:parseFloat(r.querySelector('.sup-item-cost').value)
+  })).filter(r=>r.name && !isNaN(r.qty) && r.qty>0 && !isNaN(r.cost));
+  if(!supplier || rows.length===0){ alert('أكمل اسم المورد ومنتج واحد على الأقل بكمية وتكلفة صحيحة'); return }
+  const total=rows.reduce((a,r)=>a+r.qty*r.cost,0);
+  const rec={supplier, items:rows, total, paid, remaining:Math.max(0,total-paid), time:new Date().toLocaleString('ar-EG')};
   if(cloudDB){
     try{
       await cloudDB.collection('suppliers').add(rec);
-      if(p) await cloudDB.collection('products').doc(p.id).update({qty:p.qty+qty, cost});
+      for(const r of rows){
+        const p=products.find(x=>x.name.trim().toLowerCase()===r.name.toLowerCase());
+        if(p) await cloudDB.collection('products').doc(p.id).update({qty:p.qty+r.qty, cost:r.cost});
+        else await cloudDB.collection('products').add({name:r.name, cat:'', barcode:'', cost:r.cost, qty:r.qty, img:''});
+      }
     }catch(e){ alert('تعذر الحفظ'); return }
   } else {
     rec.id='sup'+Date.now(); suppliers.push(rec);
-    if(p){ p.qty+=qty; p.cost=cost; }
+    for(const r of rows){
+      const p=products.find(x=>x.name.trim().toLowerCase()===r.name.toLowerCase());
+      if(p){ p.qty+=r.qty; p.cost=r.cost; } else products.push({id:'p'+Date.now()+Math.random(), name:r.name, cat:'', barcode:'', cost:r.cost, qty:r.qty, img:''});
+    }
     saveLocal(); renderSuppliers(); renderProductList(); renderProductGrid();
   }
   closeOverlay('supOverlay');
 }
 async function paySupplier(id){
   const s=suppliers.find(x=>x.id===id); if(!s) return;
-  const amt=parseFloat(prompt('قيمة الدفعة:','')); if(isNaN(amt)||amt<=0) return;
+  const amt=parseFloat(prompt(`مدفوع له حتى الآن: ${s.paid.toFixed(2)} • متبقي: ${s.remaining.toFixed(2)}\nقيمة الدفعة الجديدة:`,'')); if(isNaN(amt)||amt<=0) return;
   const paid=s.paid+amt, remaining=Math.max(0,s.total-paid);
   if(cloudDB){ try{ await cloudDB.collection('suppliers').doc(id).update({paid,remaining}); }catch(e){ alert('تعذر التحديث'); } }
   else{ s.paid=paid; s.remaining=remaining; saveLocal(); renderSuppliers(); }
@@ -705,10 +805,13 @@ function renderSuppliers(){
   const el=document.getElementById('supplierList'); if(!el) return;
   document.getElementById('supTotal').textContent=suppliers.reduce((a,s)=>a+s.remaining,0).toFixed(2);
   const list=[...suppliers].reverse();
-  el.innerHTML= list.length? list.map(s=>`
-    <div class="list-item"><div class="meta"><div class="n">${escapeHtml(s.supplier)} - ${escapeHtml(s.product)}</div><div class="s">كمية ${s.qty} • متبقي ${s.remaining.toFixed(2)} من ${s.total.toFixed(2)}</div></div>
-    ${s.remaining>0?`<button class="btn-p" onclick="paySupplier('${s.id}')">دفع</button>`:'<span class="badge">مسدد</span>'}
-    </div>`).join('') : '<p class="muted">لا توجد توريدات بعد</p>';
+  el.innerHTML= list.length? list.map(s=>{
+    const items=s.items||(s.product?[{name:s.product,qty:s.qty}]:[]);
+    const itemsTxt=items.map(i=>`${escapeHtml(i.name)}×${i.qty}`).join('، ')||'—';
+    return `<div class="list-item"><div class="meta"><div class="n">${escapeHtml(s.supplier)}</div><div class="s">${itemsTxt}</div><div class="s">الإجمالي ${s.total.toFixed(2)} • مدفوع ${s.paid.toFixed(2)} • <b style="color:var(--danger)">متبقي ${s.remaining.toFixed(2)}</b></div></div>
+    ${s.remaining>0?`<button class="btn-p" onclick="paySupplier('${s.id}')">تسجيل دفعة</button>`:'<span class="badge">مسدد بالكامل</span>'}
+    </div>`;
+  }).join('') : '<p class="muted">لا توجد توريدات بعد</p>';
 }
 
 function renderAuditRows(){
@@ -831,7 +934,16 @@ async function doLogin(){
   try{ await fbAuth.signInWithEmailAndPassword(document.getElementById('loginEmail').value.trim(),document.getElementById('loginPass').value); }
   catch(e){ m.textContent='البريد أو كلمة المرور غير صحيحة'; }
 }
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+if('serviceWorker' in navigator){
+  let swRefreshed=false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(swRefreshed) return; swRefreshed=true; location.reload();
+  });
+  navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{
+    reg.update().catch(()=>{});
+    setInterval(()=>reg.update().catch(()=>{}), 60*1000);
+  }).catch(()=>{});
+}
 applyRoleUI(); startAuth();
 </script>
 </body>
