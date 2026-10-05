@@ -1,5 +1,5 @@
 // رقم نسخة الكاش - بيتغير مع كل نشر فعلي للملف ده عن طريق GitHub
-const VERSION = 'zarzor-v3';
+const VERSION = 'zarzor-v4';
 const ASSETS = ['./', 'index.html', 'manifest.json', 'firebase-config.js', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {

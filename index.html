@@ -362,7 +362,7 @@ async function initCloud(){
   if(cloudDB){
     if(tag) tag.textContent='☁️ متصل - البيانات تتزامن أول بأول على كل الأجهزة';
     cloudDB.collection('products').onSnapshot(snap=>{products=snap.docs.map(d=>({id:d.id,...d.data()}));renderAll();},()=>{});
-    cloudDB.collection('sales').onSnapshot(snap=>{sales=snap.docs.map(d=>({id:d.id,...d.data()}));renderAll();},()=>{});
+    cloudDB.collection('sales').onSnapshot(snap=>{sales=sortSales(snap.docs.map(d=>({id:d.id,...d.data()})));renderAll();},()=>{});
     cloudDB.collection('expenses').onSnapshot(snap=>{expenses=snap.docs.map(d=>({id:d.id,...d.data()}));renderAll();},()=>{});
     cloudDB.collection('debts').onSnapshot(snap=>{debts=snap.docs.map(d=>({id:d.id,...d.data()}));renderAll();},()=>{});
     cloudDB.collection('suppliers').onSnapshot(snap=>{suppliers=snap.docs.map(d=>({id:d.id,...d.data()}));renderAll();},()=>{});
@@ -498,7 +498,7 @@ async function confirmSale(){
   if(isNaN(price)||price<0||isNaN(qty)||qty<1){alert('أدخل سعر وكمية صحيحين');return}
   if(qty>p.qty){alert('الكمية المطلوبة أكبر من المتاح ('+p.qty+')');return}
   const newQty=p.qty-qty;
-  const sale={time:new Date().toLocaleString('ar-EG'),name:p.name,qty,price,cost:p.cost,revenue:price*qty,profit:(price-p.cost)*qty,free:false};
+  const sale={time:new Date().toLocaleString('ar-EG'),ts:new Date().toISOString(),pid:id,name:p.name,qty,price,cost:p.cost,revenue:price*qty,profit:(price-p.cost)*qty,free:false};
   if(cloudDB){
     try{
       await cloudDB.collection('products').doc(id).update({qty:newQty});
@@ -516,7 +516,7 @@ async function confirmFreeSale(){
   const price=parseFloat(document.getElementById('freePrice').value);
   const qty=parseInt(document.getElementById('freeQty').value);
   if(!name||isNaN(price)||isNaN(qty)||qty<1){alert('أكمل البيانات');return}
-  const sale={time:new Date().toLocaleString('ar-EG'),name,qty,price,cost:0,revenue:price*qty,profit:price*qty,free:true};
+  const sale={time:new Date().toLocaleString('ar-EG'),ts:new Date().toISOString(),name,qty,price,cost:0,revenue:price*qty,profit:price*qty,free:true};
   if(cloudDB){
     try{ await cloudDB.collection('sales').add(sale); }catch(e){ alert('تعذر إتمام البيع'); return }
   } else {
@@ -602,10 +602,22 @@ async function handleImport(ev){
   ev.target.value=''; alert('تم الاستيراد بنجاح');
 }
 
-function isToday(t){ const d=new Date(t); const n=new Date(); return !isNaN(d) && d.toDateString()===n.toDateString(); }
+function saleDate(s){
+  if(s && s.ts){ const d=new Date(s.ts); if(!isNaN(d)) return d; }
+  const t=(s&&s.time)||s||''; let d=new Date(t); if(!isNaN(d)) return d;
+  // تواريخ قديمة مكتوبة بأرقام عربية مثل: ٤‏/١٠‏/٢٠٢٦، ٥:٠٤:٠٠ ص
+  const str=String(t).replace(/[\u0660-\u0669]/g,c=>c.charCodeAt(0)-0x660).replace(/[\u200e\u200f]/g,'');
+  const m=str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\D+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([صم])?/);
+  if(!m) return null;
+  let h=+m[4]; if(m[7]==='م'&&h<12) h+=12; if(m[7]==='ص'&&h===12) h=0;
+  return new Date(+m[3],+m[2]-1,+m[1],h,+m[5],+(m[6]||0));
+}
+function isToday(s){ const d=saleDate(s); const n=new Date(); return !!d && d.toDateString()===n.toDateString(); }
+function sortSales(a){ return a.sort((x,y)=>{const dx=saleDate(x),dy=saleDate(y);return (dx?dx.getTime():0)-(dy?dy.getTime():0)}); }
+function findProd(s){ return s.free?null:(products.find(x=>s.pid&&x.id===s.pid)||products.find(x=>x.name===s.name)||null); }
 function renderDaily(){
   const el=document.getElementById('dailyList'); if(!el) return;
-  const todaySales=sales.filter(s=>s.status!=='cancelled' && isToday(s.time)).slice().reverse();
+  const todaySales=sales.filter(s=>s.status!=='cancelled' && isToday(s)).slice().reverse();
   const total=todaySales.reduce((a,s)=>a+s.revenue,0);
   document.getElementById('dailyTotal').textContent=total.toFixed(2);
   el.innerHTML= todaySales.length? todaySales.map(s=>`
@@ -625,7 +637,7 @@ async function editSaleLine(id){
   if(newPriceStr===null) return;
   const newPrice=parseFloat(newPriceStr);
   if(isNaN(newQty)||newQty<1||isNaN(newPrice)||newPrice<0){ alert('أدخل كمية وسعر صحيحين'); return }
-  const p=!s.free ? products.find(x=>x.name===s.name) : null;
+  const p=findProd(s);
   if(p){
     const available=p.qty+s.qty; // المتاح بعد إرجاع الكمية القديمة
     if(newQty>available){ alert('الكمية المطلوبة أكبر من المتاح ('+available+')'); return }
@@ -634,7 +646,7 @@ async function editSaleLine(id){
   const newProfit=s.free? newRevenue : (newPrice-s.cost)*newQty;
   if(cloudDB){
     try{
-      if(p) await cloudDB.collection('products').doc(p.id).update({qty:p.qty+s.qty-newQty});
+      if(p) await cloudDB.collection('products').doc(p.id).update({qty:firebase.firestore.FieldValue.increment(s.qty-newQty)});
       await cloudDB.collection('sales').doc(id).update({qty:newQty, price:newPrice, revenue:newRevenue, profit:newProfit});
     }catch(e){ alert('تعذر حفظ التعديل'); return }
   } else {
@@ -646,11 +658,11 @@ async function editSaleLine(id){
 async function deleteSaleLine(id){
   const s=sales.find(x=>x.id===id); if(!s) return;
   if(!confirm('تأكيد حذف هذا البند نهائيًا من اليومية؟ هيرجع المخزون لو كان منتج فعلي.'))return;
-  const p=!s.free ? products.find(x=>x.name===s.name) : null;
+  const p=findProd(s);
   if(cloudDB){
     try{
       await cloudDB.collection('sales').doc(id).delete();
-      if(p) await cloudDB.collection('products').doc(p.id).update({qty:p.qty+s.qty});
+      if(p) await cloudDB.collection('products').doc(p.id).update({qty:firebase.firestore.FieldValue.increment(s.qty)});
     }catch(e){ alert('تعذر الحذف'); return }
   } else {
     sales=sales.filter(x=>x.id!==id); if(p) p.qty+=s.qty; saveLocal(); renderAll();
@@ -670,11 +682,11 @@ function renderReturns(){
 async function cancelSale(id){
   const s=sales.find(x=>x.id===id); if(!s || s.status==='cancelled') return;
   if(!confirm('تأكيد إلغاء عملية البيع دي؟ هيرجع المخزون ويتعكس الإيراد والربح.'))return;
-  const p=!s.free ? products.find(x=>x.name===s.name) : null;
+  const p=findProd(s);
   if(cloudDB){
     try{
       await cloudDB.collection('sales').doc(id).update({status:'cancelled'});
-      if(p) await cloudDB.collection('products').doc(p.id).update({qty:p.qty+s.qty});
+      if(p) await cloudDB.collection('products').doc(p.id).update({qty:firebase.firestore.FieldValue.increment(s.qty)});
     }catch(e){ alert('تعذر الإلغاء'); return }
   } else {
     s.status='cancelled'; if(p) p.qty+=s.qty; saveLocal(); renderAll();
