@@ -170,19 +170,19 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
 
   <!-- CUSTOMER DEBTS -->
   <section id="view-debts" class="hide">
-    <div class="row" style="margin-bottom:10px">
-      <button class="btn-p" onclick="openDebtForm()">+ إضافة دين عميل</button>
-      <button class="btn-o" onclick="openOldDebtForm()">+ دين قديم (بدون تفاصيل)</button>
-    </div>
+    <button class="btn-p" style="width:100%;margin-bottom:10px" onclick="openDebtForm()">+ إضافة دين عميل</button>
     <div class="card"><div class="tag">إجمالي الديون المستحقة</div><div class="v" id="debtTotal">0</div></div>
-    <div class="card"><div class="tag">تم تحصيله هذا الشهر من الديون</div><div class="v" id="debtCollected" style="font-weight:800">0</div></div>
     <div id="debtList"></div>
   </section>
 
   <!-- SUPPLIERS -->
   <section id="view-suppliers" class="hide">
-    <button class="btn-p" style="width:100%;margin-bottom:10px" onclick="openSupplierForm()">+ تسجيل توريد</button>
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn-p" onclick="openSupplierForm()">+ تسجيل توريد</button>
+      <button class="btn-o" onclick="openOldSupForm()">+ دين قديم عليا (بدون تفاصيل)</button>
+    </div>
     <div class="card"><div class="tag">إجمالي المستحق للموردين</div><div class="v" id="supTotal">0</div></div>
+    <div class="card"><div class="tag">اتسدد للموردين هذا الشهر</div><div class="v" id="supPaidMonth" style="font-weight:800">0</div></div>
     <div id="supplierList"></div>
   </section>
 
@@ -204,7 +204,7 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
       <div class="card"><div class="tag">مجمل الربح</div><div class="v" id="repGross">0</div></div>
       <div class="card"><div class="tag">صافي الربح</div><div class="v" id="repNet">0</div></div>
       <div class="card"><div class="tag">سحوبات الموظفين</div><div class="v" id="repWd">0</div></div>
-      <div class="card"><div class="tag">ديون تم تحصيلها</div><div class="v" id="repCollected">0</div></div>
+      <div class="card"><div class="tag">اتسدد للموردين</div><div class="v" id="repCollected">0</div></div>
     </div>
     <div class="card"><h2 style="margin-top:0">الأكثر مبيعًا</h2><div id="repTop"></div></div>
     <div class="card"><h2 style="margin-top:0">الربح حسب التصنيف</h2><div id="repByCat"></div></div>
@@ -333,19 +333,19 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
   </div>
 </div>
 
-<!-- OLD DEBT FORM -->
-<div class="overlay" id="oldDebtOverlay">
+<!-- OLD SUPPLIER DEBT FORM (owed by the shop) -->
+<div class="overlay" id="oldSupOverlay">
   <div class="sheet">
-    <button class="close-x" onclick="closeOverlay('oldDebtOverlay')">✕</button>
-    <h2>إضافة دين قديم</h2>
+    <button class="close-x" onclick="closeOverlay('oldSupOverlay')">✕</button>
+    <h2>دين قديم عليا</h2>
     <p class="muted" style="margin-top:-6px">من غير تفاصيل: الاسم اختياري، واكتب المبلغ بس.</p>
-    <input id="oldDebtName" placeholder="الاسم (اختياري)">
+    <input id="oldSupName" placeholder="اسم المورد أو الجهة (اختياري)">
     <div class="row">
-      <input id="oldDebtTotal" type="number" placeholder="إجمالي الدين" step="0.01">
-      <input id="oldDebtPaid" type="number" placeholder="اللي اتسدد الشهر ده" step="0.01" value="0">
+      <input id="oldSupTotal" type="number" placeholder="إجمالي الدين" step="0.01">
+      <input id="oldSupPaid" type="number" placeholder="اللي سددته الشهر ده" step="0.01" value="0">
     </div>
-    <p class="muted">لو اتسدد كله الشهر ده اكتب نفس المبلغ في الخانتين.</p>
-    <button class="btn-p" style="width:100%" onclick="saveOldDebt()">حفظ</button>
+    <p class="muted">لو سددته كله الشهر ده اكتب نفس المبلغ في الخانتين.</p>
+    <button class="btn-p" style="width:100%" onclick="saveOldSup()">حفظ</button>
   </div>
 </div>
 
@@ -910,26 +910,13 @@ async function payDebt(id){
   if(cloudDB){ try{ await cloudDB.collection('debts').doc(id).update({paid,remaining,payments:firebase.firestore.FieldValue.arrayUnion(pay)}); }catch(e){ alert('تعذر التحديث'); } }
   else{ d.paid=paid; d.remaining=remaining; d.payments=(d.payments||[]).concat([pay]); saveLocal(); renderDebts(); renderDashboard(); }
 }
-function openOldDebtForm(){ ['oldDebtName','oldDebtTotal'].forEach(id=>document.getElementById(id).value=''); document.getElementById('oldDebtPaid').value=0; openOverlay('oldDebtOverlay'); }
-async function saveOldDebt(){
-  const name=document.getElementById('oldDebtName').value.trim()||'دين قديم';
-  const total=parseFloat(document.getElementById('oldDebtTotal').value);
-  let paid=parseFloat(document.getElementById('oldDebtPaid').value)||0;
-  if(isNaN(total)||total<=0){alert('اكتب إجمالي الدين');return}
-  if(paid<0) paid=0; if(paid>total) paid=total;
-  const nf=nowFields();
-  const debt={name,phone:'',invoice:'',total,paid,remaining:total-paid,old:true,payments:paid>0?[{amt:paid,ts:nf.ts}]:[],...nf};
-  try{ await dbAdd('debts',debt,debts,'d'); }catch(e){ alert('تعذر الحفظ'); return }
-  closeOverlay('oldDebtOverlay'); renderDebts(); renderDashboard();
-}
 function renderDebts(){
   const el=document.getElementById('debtList'); if(!el) return;
   document.getElementById('debtTotal').textContent=debts.reduce((a,d)=>a+d.remaining,0).toFixed(2);
-  document.getElementById('debtCollected').textContent=debts.reduce((a,d)=>a+(d.payments||[]).filter(p=>inThisMonth({ts:p.ts})).reduce((x,p)=>x+p.amt,0),0).toFixed(2);
   const list=[...debts].reverse();
   el.innerHTML= list.length? list.map(d=>`
     <div class="list-item">
-      <div class="meta"><div class="n">${escapeHtml(d.name)} ${d.phone?'• '+escapeHtml(d.phone):''} ${d.old?'<span class="badge">قديم</span>':''}</div><div class="s">${d.invoice?escapeHtml(d.invoice)+' • ':''}متبقي ${d.remaining.toFixed(2)} من ${d.total.toFixed(2)}</div></div>
+      <div class="meta"><div class="n">${escapeHtml(d.name)} ${d.phone?'• '+escapeHtml(d.phone):''}</div><div class="s">${d.invoice?escapeHtml(d.invoice)+' • ':''}متبقي ${d.remaining.toFixed(2)} من ${d.total.toFixed(2)}</div></div>
       ${d.remaining>0?`<button class="btn-p" onclick="payDebt('${d.id}')">تسجيل دفعة</button>`:'<span class="badge">مسدد</span>'}
     </div>`).join('') : '<p class="muted">لا توجد ديون مسجلة</p>';
 }
@@ -1023,7 +1010,8 @@ async function saveSupplier(){
   })).filter(r=>r.name && !isNaN(r.qty) && r.qty>0 && !isNaN(r.cost));
   if(!supplier || rows.length===0){ alert('أكمل اسم المورد ومنتج واحد على الأقل بكمية وتكلفة صحيحة'); return }
   const total=rows.reduce((a,r)=>a+r.qty*r.cost,0);
-  const rec={supplier, items:rows, total, paid, remaining:Math.max(0,total-paid), time:new Date().toLocaleString('ar-EG')};
+  const nf=nowFields();
+  const rec={supplier, items:rows, total, paid, remaining:Math.max(0,total-paid), payments:paid>0?[{amt:paid,ts:nf.ts}]:[], ...nf};
   if(cloudDB){
     try{
       await cloudDB.collection('suppliers').add(rec);
@@ -1045,19 +1033,34 @@ async function saveSupplier(){
 }
 async function paySupplier(id){
   const s=suppliers.find(x=>x.id===id); if(!s) return;
-  const amt=parseFloat(prompt(`مدفوع له حتى الآن: ${s.paid.toFixed(2)} • متبقي: ${s.remaining.toFixed(2)}\nقيمة الدفعة الجديدة:`,'')); if(isNaN(amt)||amt<=0) return;
+  let amt=parseFloat(prompt(`مدفوع له حتى الآن: ${s.paid.toFixed(2)} • متبقي: ${s.remaining.toFixed(2)}\nقيمة الدفعة الجديدة:`,'')); if(isNaN(amt)||amt<=0) return;
+  if(amt>s.remaining) amt=s.remaining;
   const paid=s.paid+amt, remaining=Math.max(0,s.total-paid);
-  if(cloudDB){ try{ await cloudDB.collection('suppliers').doc(id).update({paid,remaining}); }catch(e){ alert('تعذر التحديث'); } }
-  else{ s.paid=paid; s.remaining=remaining; saveLocal(); renderSuppliers(); }
+  const pay={amt,ts:new Date().toISOString()};
+  if(cloudDB){ try{ await cloudDB.collection('suppliers').doc(id).update({paid,remaining,payments:firebase.firestore.FieldValue.arrayUnion(pay)}); }catch(e){ alert('تعذر التحديث'); } }
+  else{ s.paid=paid; s.remaining=remaining; s.payments=(s.payments||[]).concat([pay]); saveLocal(); renderSuppliers(); }
+}
+function openOldSupForm(){ ['oldSupName','oldSupTotal'].forEach(id=>document.getElementById(id).value=''); document.getElementById('oldSupPaid').value=0; openOverlay('oldSupOverlay'); }
+async function saveOldSup(){
+  const supplier=document.getElementById('oldSupName').value.trim()||'دين قديم';
+  const total=parseFloat(document.getElementById('oldSupTotal').value);
+  let paid=parseFloat(document.getElementById('oldSupPaid').value)||0;
+  if(isNaN(total)||total<=0){alert('اكتب إجمالي الدين');return}
+  if(paid<0) paid=0; if(paid>total) paid=total;
+  const nf=nowFields();
+  const rec={supplier,items:[],total,paid,remaining:total-paid,old:true,payments:paid>0?[{amt:paid,ts:nf.ts}]:[],...nf};
+  try{ await dbAdd('suppliers',rec,suppliers,'sup'); }catch(e){ alert('تعذر الحفظ'); return }
+  closeOverlay('oldSupOverlay'); renderSuppliers();
 }
 function renderSuppliers(){
   const el=document.getElementById('supplierList'); if(!el) return;
   document.getElementById('supTotal').textContent=suppliers.reduce((a,s)=>a+s.remaining,0).toFixed(2);
+  document.getElementById('supPaidMonth').textContent=suppliers.reduce((a,s)=>a+(s.payments||[]).filter(p=>inThisMonth({ts:p.ts})).reduce((x,p)=>x+p.amt,0),0).toFixed(2);
   const list=[...suppliers].reverse();
   el.innerHTML= list.length? list.map(s=>{
     const items=s.items||(s.product?[{name:s.product,qty:s.qty}]:[]);
     const itemsTxt=items.map(i=>`${escapeHtml(i.name)}×${i.qty}`).join('، ')||'—';
-    return `<div class="list-item"><div class="meta"><div class="n">${escapeHtml(s.supplier)}</div><div class="s">${itemsTxt}</div><div class="s">الإجمالي ${s.total.toFixed(2)} • مدفوع ${s.paid.toFixed(2)} • <b style="color:var(--danger)">متبقي ${s.remaining.toFixed(2)}</b></div></div>
+    return `<div class="list-item"><div class="meta"><div class="n">${escapeHtml(s.supplier)} ${s.old?'<span class="badge">دين قديم</span>':''}</div><div class="s">${itemsTxt}</div><div class="s">الإجمالي ${s.total.toFixed(2)} • مدفوع ${s.paid.toFixed(2)} • <b style="color:var(--danger)">متبقي ${s.remaining.toFixed(2)}</b></div></div>
     ${s.remaining>0?`<button class="btn-p" onclick="paySupplier('${s.id}')">تسجيل دفعة</button>`:'<span class="badge">مسدد بالكامل</span>'}
     </div>`;
   }).join('') : '<p class="muted">لا توجد توريدات بعد</p>';
@@ -1106,7 +1109,7 @@ function renderReport(){
   const monthSales=sales.filter(s=>s.status!=='cancelled' && inM(s));
   const monthExp=expenses.filter(inM);
   document.getElementById('repWd').textContent=withdrawals.filter(inM).reduce((a,w)=>a+(w.amount||0),0).toFixed(2);
-  document.getElementById('repCollected').textContent=debts.reduce((a,d)=>a+(d.payments||[]).filter(p=>inM({ts:p.ts})).reduce((x,p)=>x+p.amt,0),0).toFixed(2);
+  document.getElementById('repCollected').textContent=suppliers.reduce((a,x)=>a+(x.payments||[]).filter(p=>inM({ts:p.ts})).reduce((y,p)=>y+p.amt,0),0).toFixed(2);
   const revenue=monthSales.reduce((a,s)=>a+s.revenue,0);
   const cogs=monthSales.reduce((a,s)=>a+(s.cost*s.qty),0);
   const gross=revenue-cogs;
