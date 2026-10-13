@@ -125,6 +125,7 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
   <section id="view-history" class="hide">
     <h2 style="margin-top:0">سجل الأيام والمراجعة</h2>
     <p class="muted" style="margin-top:-6px">كل وردية (أو يوم) لوحدها. افتح أي يوم تشوف مبيعاته وتراجعها مع حساب اليومية.</p>
+    <button class="btn-p" style="width:100%;margin-bottom:10px" onclick="openShiftEdit()">+ إضافة وردية يدويًا (لو نسيت تبدأ وردية)</button>
     <div id="historyList"></div>
   </section>
 
@@ -155,7 +156,9 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
   <section id="view-returns" class="hide">
     <h2 style="margin-top:0">مرتجعات وإلغاء البيع</h2>
     <p class="muted" style="margin-top:-6px">إلغاء عملية بيع بيرجع الكمية للمخزون ويعكس الإيراد والربح، وتفضل في السجل بحالة "ملغاة".</p>
+    <input id="retSearch" placeholder="ابحث باسم المنتج" oninput="retLimit=50;renderReturns()">
     <div id="returnsList"></div>
+    <button class="btn-o hide" id="retMore" style="width:100%;margin-top:6px" onclick="retLimit+=50;renderReturns()">عرض المزيد</button>
   </section>
 
   <!-- EXPENSES -->
@@ -209,6 +212,12 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
       <div class="card"><div class="tag">اتسدد للموردين</div><div class="v" id="repCollected">0</div></div>
     </div>
     <div class="card"><h2 style="margin-top:0">تفاصيل صافي الربح</h2><div id="repNetBreak"></div></div>
+    <div class="card" style="border-color:var(--brand2)">
+      <h2 style="margin-top:0">💰 الفلوس اللي فاضلة معايا</h2>
+      <div class="v" id="repCashVal" style="font-size:1.6rem;font-weight:800;color:var(--brand2);margin-bottom:8px">0</div>
+      <div id="repCashBreak"></div>
+      <p class="muted" style="margin-bottom:0">إيراد المبيعات (من غير الملغي) بعد خصم المصاريف وسحوبات الموظفين وسداد الموردين والديون القديمة، في الشهر المختار.</p>
+    </div>
     <div class="card"><h2 style="margin-top:0">الأكثر مبيعًا</h2><div id="repTop"></div></div>
     <div class="card"><h2 style="margin-top:0">الربح حسب التصنيف</h2><div id="repByCat"></div></div>
   </section>
@@ -319,6 +328,22 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
     </div>
     <div class="tag" style="display:block;margin:6px 0">المبلغ المستحق للمورد: <b id="supRemaining">0</b></div>
     <button class="btn-p" style="width:100%" onclick="saveSupplier()">حفظ التوريد</button>
+  </div>
+</div>
+
+<!-- SHIFT EDIT FORM -->
+<div class="overlay" id="shiftEditOverlay">
+  <div class="sheet">
+    <button class="close-x" onclick="closeOverlay('shiftEditOverlay')">✕</button>
+    <h2 id="shEditTitle">تعديل وقت الوردية</h2>
+    <p class="muted" style="margin-top:-6px">كل العمليات اللي وقتها جوه الفترة دي بتتحسب في الوردية دي، حتى لو عدّت 12 بالليل.</p>
+    <input type="hidden" id="shEditId">
+    <label>بداية الوردية</label>
+    <input type="datetime-local" id="shEditStart">
+    <label>نهاية الوردية (سيبها فاضية لو لسه شغالة)</label>
+    <input type="datetime-local" id="shEditEnd">
+    <button class="btn-p" style="width:100%" onclick="saveShiftEdit()">حفظ</button>
+    <button class="btn-d" id="shEditDel" style="width:100%;margin-top:8px" onclick="deleteShift()">حذف الوردية (العمليات تفضل زي ما هي)</button>
   </div>
 </div>
 
@@ -827,15 +852,21 @@ async function deleteSaleLine(id){
   }
 }
 
+let retLimit=50;
 function renderReturns(){
   const el=document.getElementById('returnsList'); if(!el) return;
-  const active=sales.filter(s=>s.status!=='cancelled').slice(-30).reverse();
-  if(active.length===0){el.innerHTML='<p class="muted">لا توجد عمليات بيع بعد</p>';return}
-  el.innerHTML=active.map(s=>`
-    <div class="list-item">
-      <div class="meta"><div class="n">${escapeHtml(s.name)} × ${s.qty}${s.free?' (بيع حر)':''}</div><div class="s">${s.time} • ${s.revenue.toFixed(2)}</div></div>
-      <button class="btn-d" onclick="cancelSale('${s.id}')">إلغاء البيع</button>
-    </div>`).join('');
+  const q=(document.getElementById('retSearch').value||'').trim().toLowerCase();
+  const all=sales.filter(s=>!q || (s.name||'').toLowerCase().includes(q)).slice().reverse();
+  const more=document.getElementById('retMore');
+  if(all.length===0){el.innerHTML='<p class="muted">لا توجد عمليات بيع</p>'; if(more) more.classList.add('hide'); return}
+  const shown=all.slice(0,retLimit);
+  el.innerHTML='<p class="muted">إجمالي العمليات: '+all.length+' (من أول يوم)</p>'+shown.map(s=>{
+    const c=s.status==='cancelled';
+    return `<div class="list-item"${c?' style="opacity:.55"':''}>
+      <div class="meta"><div class="n">${escapeHtml(s.name)} × ${s.qty}${s.free?' (بيع حر)':''}${c?' (ملغاة)':''}</div><div class="s">${s.time} • ${s.revenue.toFixed(2)}</div></div>
+      ${c?'<span class="badge">ملغاة</span>':`<button class="btn-d" onclick="cancelSale('${s.id}')">إلغاء البيع</button>`}
+    </div>`;}).join('');
+  if(more){ if(all.length>retLimit){ more.classList.remove('hide'); more.textContent='عرض المزيد ('+(all.length-retLimit)+' عملية متبقية)'; } else more.classList.add('hide'); }
 }
 async function cancelSale(id){
   const s=sales.find(x=>x.id===id); if(!s || s.status==='cancelled') return;
@@ -998,8 +1029,43 @@ function dayHtml(d){
   return '<details class="card" '+(histOpen.has(d.key)?'open':'')+' ontoggle="histToggle(\''+d.key+'\',this.open)">'+
     '<summary style="cursor:pointer;font-weight:800">'+title+'<div class="muted" style="font-weight:400">'+t.count+' عملية • مبيعات '+t.revenue.toFixed(2)+'</div></summary>'+
     review+
+    (d.shift?'<button class="btn-o" style="margin:4px 0" onclick="openShiftEdit(\''+d.shift.id+'\')">✏️ تعديل وقت الوردية</button>':'')+
     '<div class="muted" style="margin:6px 0">مصاريف: '+t.expensesTotal.toFixed(2)+' • سحوبات موظفين: '+t.withdrawalsTotal.toFixed(2)+' • المتوقع في الدرج: <b>'+t.cash.toFixed(2)+'</b></div>'+
     (lines||'<p class="muted">لا توجد مبيعات</p>')+'</details>';
+}
+function toLocalInput(d){ const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }
+function openShiftEdit(id){
+  const sh=id? shifts.find(x=>x.id===id) : null;
+  document.getElementById('shEditId').value=sh?sh.id:'';
+  document.getElementById('shEditTitle').textContent=sh?'تعديل وقت الوردية':'إضافة وردية يدويًا';
+  document.getElementById('shEditStart').value=sh?toLocalInput(new Date(sh.startTs)):'';
+  document.getElementById('shEditEnd').value=(sh&&sh.endTs)?toLocalInput(new Date(sh.endTs)):'';
+  document.getElementById('shEditDel').style.display=sh?'':'none';
+  openOverlay('shiftEditOverlay');
+}
+async function saveShiftEdit(){
+  const id=document.getElementById('shEditId').value;
+  const sv=document.getElementById('shEditStart').value, ev=document.getElementById('shEditEnd').value;
+  if(!sv){ alert('اكتب بداية الوردية'); return }
+  const from=new Date(sv), to=ev?new Date(ev):null;
+  if(isNaN(from)||(to&&isNaN(to))){ alert('تاريخ غير صالح'); return }
+  if(to&&to<=from){ alert('نهاية الوردية لازم تكون بعد البداية'); return }
+  if(!to){ const o=curShift(); if(o&&o.id!==id){ alert('فيه وردية مفتوحة تانية. اقفلها الأول.'); return } }
+  const data={startTs:from.toISOString()};
+  const keys=['endTs','count','revenue','profit','expensesTotal','withdrawalsTotal'];
+  if(to){ const t=shiftTotals(from,to); Object.assign(data,{endTs:to.toISOString(),count:t.count,revenue:t.revenue,profit:t.profit,expensesTotal:t.expensesTotal,withdrawalsTotal:t.withdrawalsTotal}); }
+  else keys.forEach(k=>{ data[k]= cloudDB? firebase.firestore.FieldValue.delete() : undefined; });
+  try{
+    if(id) await dbUpdate('shifts',id,data,shifts);
+    else await dbAdd('shifts',data,shifts,'sh');
+  }catch(e){ alert('تعذر الحفظ'); return }
+  closeOverlay('shiftEditOverlay'); renderAll();
+}
+async function deleteShift(){
+  const id=document.getElementById('shEditId').value; if(!id) return;
+  if(!confirm('حذف الوردية دي؟ العمليات اللي فيها مش هتتمسح، هتفضل في اليوم بتاعها.')) return;
+  try{ await dbDelete('shifts',id,shifts); }catch(e){ alert('تعذر الحذف'); return }
+  closeOverlay('shiftEditOverlay'); renderAll();
 }
 function renderHistory(){
   const el=document.getElementById('historyList'); if(!el) return;
@@ -1163,6 +1229,10 @@ function renderReport(){
   const nb=netBreakdown(inM);
   document.getElementById('repNet').textContent=nb.net.toFixed(2);
   document.getElementById('repNetBreak').innerHTML=netBreakHtml(nb);
+  const cash=revenue-nb.exp-nb.wd-nb.sup;
+  document.getElementById('repCashVal').textContent=cash.toFixed(2);
+  const crow=(l,v,neg)=>'<div class="list-item"><div class="meta n">'+l+'</div><div style="font-weight:700;'+(neg?'color:var(--danger)':'')+'">'+(neg?'− ':'')+v.toFixed(2)+'</div></div>';
+  document.getElementById('repCashBreak').innerHTML=crow('إيراد المبيعات',revenue,false)+crow('المصاريف',nb.exp,true)+crow('سحوبات الموظفين',nb.wd,true)+crow('سداد الموردين والديون القديمة',nb.sup,true);
   const byName={}; monthSales.forEach(s=>{ byName[s.name]=(byName[s.name]||0)+s.qty; });
   const top=Object.entries(byName).sort((a,b)=>b[1]-a[1]).slice(0,5);
   document.getElementById('repTop').innerHTML= top.length? top.map(([n,q])=>`<div class="list-item"><div class="meta n">${escapeHtml(n)}</div><div>${q}</div></div>`).join('') : '<p class="muted">لا توجد بيانات</p>';
