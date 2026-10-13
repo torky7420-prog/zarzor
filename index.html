@@ -70,6 +70,7 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
   <button class="btn" id="cashierTag" onclick="toggleRole()">مدير</button>
 </header>
 
+<div id="clockWarn" class="hide" style="background:#b45309;color:#fff;padding:8px 12px;font-weight:700;font-size:.85rem"></div>
 <div class="menu-bg" id="menuBg" onclick="closeMenu()"></div>
 <nav class="menu" id="menu">
   <button class="close-x" onclick="closeMenu()">✕</button>
@@ -383,6 +384,24 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
 <script>
 let products=[], sales=[], expenses=[], debts=[], suppliers=[], audits=[], withdrawals=[], shifts=[];
 let cloudDB=null, downloadsCap=null;
+// ساعة مصححة: بنقارن ساعة الجهاز بوقت السيرفر، فلو ساعة موبايل غلط مش بتبوّظ التواريخ
+let clockSkew=0;
+function nowDate(){ return new Date(Date.now()+clockSkew); }
+async function syncClock(){
+  try{
+    const t0=Date.now();
+    const r=await fetch('manifest.json?_='+t0,{method:'HEAD',cache:'no-store'});
+    const t1=Date.now(); const h=r.headers.get('date'); if(!h) return;
+    const srv=new Date(h).getTime(); if(isNaN(srv)) return;
+    clockSkew=srv-(t0+t1)/2;
+    const w=document.getElementById('clockWarn'); if(!w) return;
+    const mins=Math.round(Math.abs(clockSkew)/60000);
+    if(Math.abs(clockSkew)>120000){
+      w.textContent='⚠️ ساعة الجهاز ده '+(clockSkew<0?'متقدمة':'متأخرة')+' عن الوقت الحقيقي بحوالي '+(mins>=60?(Math.round(mins/6)/10)+' ساعة':mins+' دقيقة')+'. التطبيق بيصحح الوقت لوحده، لكن اضبط التاريخ والوقت التلقائي من إعدادات الموبايل.';
+      w.classList.remove('hide');
+    } else w.classList.add('hide');
+  }catch(e){}
+}
 let role = localStorage.getItem('acc_role') || 'manager';
 
 function loadLocal(){
@@ -557,7 +576,7 @@ async function confirmSale(){
   if(isNaN(price)||price<0||isNaN(qty)||qty<1){alert('أدخل سعر وكمية صحيحين');return}
   if(qty>p.qty){alert('الكمية المطلوبة أكبر من المتاح ('+p.qty+')');return}
   const newQty=p.qty-qty;
-  const sale={time:new Date().toLocaleString('ar-EG'),ts:new Date().toISOString(),pid:id,name:p.name,qty,price,cost:p.cost,revenue:price*qty,profit:(price-p.cost)*qty,free:false};
+  const sale={...nowFields(),pid:id,name:p.name,qty,price,cost:p.cost,revenue:price*qty,profit:(price-p.cost)*qty,free:false};
   if(cloudDB){
     try{
       await cloudDB.collection('products').doc(id).update({qty:newQty});
@@ -575,7 +594,7 @@ async function confirmFreeSale(){
   const price=parseFloat(document.getElementById('freePrice').value);
   const qty=parseInt(document.getElementById('freeQty').value);
   if(!name||isNaN(price)||isNaN(qty)||qty<1){alert('أكمل البيانات');return}
-  const sale={time:new Date().toLocaleString('ar-EG'),ts:new Date().toISOString(),name,qty,price,cost:0,revenue:price*qty,profit:price*qty,free:true};
+  const sale={...nowFields(),name,qty,price,cost:0,revenue:price*qty,profit:price*qty,free:true};
   if(cloudDB){
     try{ await cloudDB.collection('sales').add(sale); }catch(e){ alert('تعذر إتمام البيع'); return }
   } else {
@@ -688,11 +707,11 @@ function saleDate(s){
   let h=+m[4]; if(m[7]==='م'&&h<12) h+=12; if(m[7]==='ص'&&h===12) h=0;
   return new Date(+m[3],+m[2]-1,+m[1],h,+m[5],+(m[6]||0));
 }
-function isToday(s){ const d=saleDate(s); const n=new Date(); return !!d && d.toDateString()===n.toDateString(); }
+function isToday(s){ const d=saleDate(s); const n=nowDate(); return !!d && d.toDateString()===n.toDateString(); }
 function sortSales(a){ return a.sort((x,y)=>{const dx=saleDate(x),dy=saleDate(y);return (dx?dx.getTime():0)-(dy?dy.getTime():0)}); }
 function findProd(s){ return s.free?null:(products.find(x=>s.pid&&x.id===s.pid)||products.find(x=>x.name===s.name)||null); }
-function inThisMonth(x){ const d=saleDate(x); const n=new Date(); return !!d && d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth(); }
-function nowFields(){ const n=new Date(); return {time:n.toLocaleString('ar-EG'), ts:n.toISOString()}; }
+function inThisMonth(x){ const d=saleDate(x); const n=nowDate(); return !!d && d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth(); }
+function nowFields(){ const n=nowDate(); return {time:n.toLocaleString('ar-EG'), ts:n.toISOString()}; }
 function fmtDT(d){ try{ return d.toLocaleString('ar-EG',{dateStyle:'short',timeStyle:'short'}); }catch(e){ return d.toLocaleString('ar-EG'); } }
 function fmtT(d){ try{ return d.toLocaleTimeString('ar-EG',{timeStyle:'short'}); }catch(e){ return d.toLocaleTimeString('ar-EG'); } }
 // عمليات قاعدة البيانات العامة (سحابة أو محلي)
@@ -717,7 +736,7 @@ function dailyRange(){
   if(o) return {from:new Date(o.startTs), to:null, mode:'open', shift:o};
   const closed=shifts.filter(x=>x.endTs).sort((a,b)=>new Date(b.endTs)-new Date(a.endTs))[0];
   if(closed) return {from:new Date(closed.endTs), to:null, mode:'after'};
-  const t=new Date(); t.setHours(0,0,0,0);
+  const t=nowDate(); t.setHours(0,0,0,0);
   return {from:t, to:null, mode:'today'};
 }
 function shiftTotals(from,to){
@@ -731,11 +750,11 @@ function shiftTotals(from,to){
 async function startShift(){
   if(curShift()){ alert('فيه وردية مفتوحة بالفعل'); return }
   if(!confirm('بدء وردية جديدة دلوقتي؟')) return;
-  try{ await dbAdd('shifts',{startTs:new Date().toISOString()},shifts,'sh'); }catch(e){ alert('تعذر بدء الوردية'); }
+  try{ await dbAdd('shifts',{startTs:nowDate().toISOString()},shifts,'sh'); }catch(e){ alert('تعذر بدء الوردية'); }
 }
 async function endShift(){
   const sh=curShift(); if(!sh) return;
-  const from=new Date(sh.startTs), to=new Date();
+  const from=new Date(sh.startTs); let to=nowDate(); if(to<from) to=new Date(from);
   const t=shiftTotals(from,to);
   if(!confirm('إنهاء الوردية؟\nعدد العمليات: '+t.count+'\nإجمالي المبيعات: '+t.revenue.toFixed(2)+'\nمصاريف: '+t.expensesTotal.toFixed(2)+'\nسحوبات موظفين: '+t.withdrawalsTotal.toFixed(2)+'\nالمتوقع في الدرج: '+t.cash.toFixed(2))) return;
   try{ await dbUpdate('shifts',sh.id,{endTs:to.toISOString(),count:t.count,revenue:t.revenue,profit:t.profit,expensesTotal:t.expensesTotal,withdrawalsTotal:t.withdrawalsTotal},shifts); }
@@ -926,7 +945,7 @@ async function payDebt(id){
   let amt=parseFloat(prompt('قيمة الدفعة الجديدة:','')); if(isNaN(amt)||amt<=0) return;
   if(amt>d.remaining) amt=d.remaining;
   const paid=d.paid+amt, remaining=Math.max(0,d.total-paid);
-  const pay={amt,ts:new Date().toISOString()};
+  const pay={amt,ts:nowDate().toISOString()};
   if(cloudDB){ try{ await cloudDB.collection('debts').doc(id).update({paid,remaining,payments:firebase.firestore.FieldValue.arrayUnion(pay)}); }catch(e){ alert('تعذر التحديث'); } }
   else{ d.paid=paid; d.remaining=remaining; d.payments=(d.payments||[]).concat([pay]); saveLocal(); renderDebts(); renderDashboard(); }
 }
@@ -1056,7 +1075,7 @@ async function paySupplier(id){
   let amt=parseFloat(prompt(`مدفوع له حتى الآن: ${s.paid.toFixed(2)} • متبقي: ${s.remaining.toFixed(2)}\nقيمة الدفعة الجديدة:`,'')); if(isNaN(amt)||amt<=0) return;
   if(amt>s.remaining) amt=s.remaining;
   const paid=s.paid+amt, remaining=Math.max(0,s.total-paid);
-  const pay={amt,ts:new Date().toISOString()};
+  const pay={amt,ts:nowDate().toISOString()};
   // سجلات قديمة من غير payments: نحفظ المدفوع السابق بتاريخ السجل عشان الحساب الشهري يفضل صح
   let prev=s.payments;
   if(!Array.isArray(prev)){ const d0=saleDate(s); prev=(s.paid>0&&d0)?[{amt:s.paid,ts:d0.toISOString()}]:[]; }
@@ -1112,11 +1131,11 @@ async function confirmAudit(){
     if(cloudDB){
       try{
         await cloudDB.collection('products').doc(c.product.id).update({qty:c.physical});
-        await cloudDB.collection('audits').add({product:c.product.name,expected:c.product.qty,physical:c.physical,diff:c.diff,flag:c.flag,time:new Date().toLocaleString('ar-EG')});
+        await cloudDB.collection('audits').add({product:c.product.name,expected:c.product.qty,physical:c.physical,diff:c.diff,flag:c.flag,time:nowDate().toLocaleString('ar-EG')});
       }catch(e){}
     } else {
       c.product.qty=c.physical;
-      audits.push({id:'au'+Date.now()+Math.random(),product:c.product.name,expected:c.product.qty,physical:c.physical,diff:c.diff,flag:c.flag,time:new Date().toLocaleString('ar-EG')});
+      audits.push({id:'au'+Date.now()+Math.random(),product:c.product.name,expected:c.product.qty,physical:c.physical,diff:c.diff,flag:c.flag,time:nowDate().toLocaleString('ar-EG')});
     }
   }
   if(!cloudDB){ saveLocal(); renderProductGrid(); renderProductList(); }
@@ -1127,7 +1146,7 @@ async function confirmAudit(){
 function renderReport(){
   const monthInput=document.getElementById('reportMonth'); if(!monthInput) return;
   let ym=monthInput.value;
-  if(!ym){ const n=new Date(); ym=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); monthInput.value=ym; }
+  if(!ym){ const n=nowDate(); ym=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); monthInput.value=ym; }
   const [y,m]=ym.split('-').map(Number);
   const inM=x=>{ const d=saleDate(x); return !!d && d.getFullYear()===y && (d.getMonth()+1)===m; };
   const monthSales=sales.filter(s=>s.status!=='cancelled' && inM(s));
@@ -1225,6 +1244,7 @@ if('serviceWorker' in navigator){
     setInterval(()=>reg.update().catch(()=>{}), 60*1000);
   }).catch(()=>{});
 }
+syncClock(); setInterval(syncClock,10*60*1000);
 applyRoleUI(); startAuth();
 </script>
 </body>
