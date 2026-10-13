@@ -131,11 +131,12 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
   <section id="view-dashboard" class="hide">
     <div class="kpi">
       <div class="card"><div class="tag">إيراد الشهر</div><div class="v" id="kpiRevenue">0</div></div>
-      <div class="card"><div class="tag">صافي الربح (بعد المصاريف)</div><div class="v" id="kpiProfit">0</div></div>
+      <div class="card"><div class="tag">صافي الربح (بعد المصاريف والسحوبات والموردين)</div><div class="v" id="kpiProfit">0</div></div>
       <div class="card"><div class="tag">عدد المنتجات</div><div class="v" id="kpiProducts">0</div></div>
       <div class="card"><div class="tag">منتجات ناقصة</div><div class="v" id="kpiLow">0</div></div>
       <div class="card"><div class="tag">ديون مستحقة</div><div class="v" id="kpiDebts">0</div></div>
     </div>
+    <div class="card"><h2 style="margin-top:0">تفاصيل صافي الربح (الشهر ده)</h2><div id="netBreak"></div></div>
     <div class="card">
       <h2 style="margin-top:0">آخر المبيعات</h2>
       <div id="recentSales" class="muted">لا توجد مبيعات بعد</div>
@@ -206,6 +207,7 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
       <div class="card"><div class="tag">سحوبات الموظفين</div><div class="v" id="repWd">0</div></div>
       <div class="card"><div class="tag">اتسدد للموردين</div><div class="v" id="repCollected">0</div></div>
     </div>
+    <div class="card"><h2 style="margin-top:0">تفاصيل صافي الربح</h2><div id="repNetBreak"></div></div>
     <div class="card"><h2 style="margin-top:0">الأكثر مبيعًا</h2><div id="repTop"></div></div>
     <div class="card"><h2 style="margin-top:0">الربح حسب التصنيف</h2><div id="repByCat"></div></div>
   </section>
@@ -587,6 +589,22 @@ function showReceipt(sale){
   openOverlay('receiptOverlay');
 }
 
+// ما اتسدد للموردين في فترة (يشمل الديون القديمة). السجلات القديمة اللي من غير دفعات بتتحسب بتاريخها.
+function supPaidIn(fn){
+  return suppliers.reduce((a,s)=>a+(Array.isArray(s.payments)? s.payments.filter(p=>fn({ts:p.ts})).reduce((x,p)=>x+p.amt,0) : (fn(s)?(s.paid||0):0)),0);
+}
+function netBreakdown(fn){
+  const gross=sales.filter(s=>s.status!=='cancelled'&&fn(s)).reduce((a,s)=>a+(s.profit||0),0);
+  const exp=expenses.filter(fn).reduce((a,e)=>a+(e.amount||0),0);
+  const wd=withdrawals.filter(fn).reduce((a,w)=>a+(w.amount||0),0);
+  const sup=supPaidIn(fn);
+  return {gross,exp,wd,sup,net:gross-exp-wd-sup};
+}
+function netBreakHtml(b){
+  const row=(l,v,neg)=>'<div class="list-item"><div class="meta n">'+l+'</div><div style="font-weight:700;'+(neg?'color:var(--danger)':'')+'">'+(neg?'− ':'')+v.toFixed(2)+'</div></div>';
+  return row('مجمل الربح (مبيعات − تكلفة)',b.gross,false)+row('المصاريف',b.exp,true)+row('سحوبات الموظفين',b.wd,true)+row('اتسدد للموردين (شامل الديون القديمة)',b.sup,true)+
+    '<div class="list-item" style="border-color:var(--brand2)"><div class="meta n">الصافي</div><div style="font-weight:800;color:var(--brand2)">'+b.net.toFixed(2)+'</div></div>';
+}
 function renderDashboard(){
   const monthSales=sales.filter(s=>s.status!=='cancelled' && inThisMonth(s));
   const monthExp=expenses.filter(inThisMonth);
@@ -594,7 +612,9 @@ function renderDashboard(){
   const grossProfit=monthSales.reduce((a,s)=>a+s.profit,0);
   const expTotal=monthExp.reduce((a,e)=>a+e.amount,0);
   document.getElementById('kpiRevenue').textContent=revenue.toFixed(2);
-  document.getElementById('kpiProfit').textContent=(grossProfit-expTotal).toFixed(2);
+  const nb=netBreakdown(inThisMonth);
+  document.getElementById('kpiProfit').textContent=nb.net.toFixed(2);
+  document.getElementById('netBreak').innerHTML=netBreakHtml(nb);
   document.getElementById('kpiProducts').textContent=products.length;
   document.getElementById('kpiLow').textContent=products.filter(p=>p.qty<=3).length;
   document.getElementById('kpiDebts').textContent=debts.reduce((a,d)=>a+d.remaining,0).toFixed(2);
@@ -1037,8 +1057,12 @@ async function paySupplier(id){
   if(amt>s.remaining) amt=s.remaining;
   const paid=s.paid+amt, remaining=Math.max(0,s.total-paid);
   const pay={amt,ts:new Date().toISOString()};
-  if(cloudDB){ try{ await cloudDB.collection('suppliers').doc(id).update({paid,remaining,payments:firebase.firestore.FieldValue.arrayUnion(pay)}); }catch(e){ alert('تعذر التحديث'); } }
-  else{ s.paid=paid; s.remaining=remaining; s.payments=(s.payments||[]).concat([pay]); saveLocal(); renderSuppliers(); }
+  // سجلات قديمة من غير payments: نحفظ المدفوع السابق بتاريخ السجل عشان الحساب الشهري يفضل صح
+  let prev=s.payments;
+  if(!Array.isArray(prev)){ const d0=saleDate(s); prev=(s.paid>0&&d0)?[{amt:s.paid,ts:d0.toISOString()}]:[]; }
+  const payments=prev.concat([pay]);
+  if(cloudDB){ try{ await cloudDB.collection('suppliers').doc(id).update({paid,remaining,payments}); }catch(e){ alert('تعذر التحديث'); } }
+  else{ s.paid=paid; s.remaining=remaining; s.payments=payments; saveLocal(); renderSuppliers(); }
 }
 function openOldSupForm(){ ['oldSupName','oldSupTotal'].forEach(id=>document.getElementById(id).value=''); document.getElementById('oldSupPaid').value=0; openOverlay('oldSupOverlay'); }
 async function saveOldSup(){
@@ -1055,7 +1079,7 @@ async function saveOldSup(){
 function renderSuppliers(){
   const el=document.getElementById('supplierList'); if(!el) return;
   document.getElementById('supTotal').textContent=suppliers.reduce((a,s)=>a+s.remaining,0).toFixed(2);
-  document.getElementById('supPaidMonth').textContent=suppliers.reduce((a,s)=>a+(s.payments||[]).filter(p=>inThisMonth({ts:p.ts})).reduce((x,p)=>x+p.amt,0),0).toFixed(2);
+  document.getElementById('supPaidMonth').textContent=supPaidIn(inThisMonth).toFixed(2);
   const list=[...suppliers].reverse();
   el.innerHTML= list.length? list.map(s=>{
     const items=s.items||(s.product?[{name:s.product,qty:s.qty}]:[]);
@@ -1109,7 +1133,7 @@ function renderReport(){
   const monthSales=sales.filter(s=>s.status!=='cancelled' && inM(s));
   const monthExp=expenses.filter(inM);
   document.getElementById('repWd').textContent=withdrawals.filter(inM).reduce((a,w)=>a+(w.amount||0),0).toFixed(2);
-  document.getElementById('repCollected').textContent=suppliers.reduce((a,x)=>a+(x.payments||[]).filter(p=>inM({ts:p.ts})).reduce((y,p)=>y+p.amt,0),0).toFixed(2);
+  document.getElementById('repCollected').textContent=supPaidIn(inM).toFixed(2);
   const revenue=monthSales.reduce((a,s)=>a+s.revenue,0);
   const cogs=monthSales.reduce((a,s)=>a+(s.cost*s.qty),0);
   const gross=revenue-cogs;
@@ -1117,7 +1141,9 @@ function renderReport(){
   document.getElementById('repRevenue').textContent=revenue.toFixed(2);
   document.getElementById('repCogs').textContent=cogs.toFixed(2);
   document.getElementById('repGross').textContent=gross.toFixed(2);
-  document.getElementById('repNet').textContent=net.toFixed(2);
+  const nb=netBreakdown(inM);
+  document.getElementById('repNet').textContent=nb.net.toFixed(2);
+  document.getElementById('repNetBreak').innerHTML=netBreakHtml(nb);
   const byName={}; monthSales.forEach(s=>{ byName[s.name]=(byName[s.name]||0)+s.qty; });
   const top=Object.entries(byName).sort((a,b)=>b[1]-a[1]).slice(0,5);
   document.getElementById('repTop').innerHTML= top.length? top.map(([n,q])=>`<div class="list-item"><div class="meta n">${escapeHtml(n)}</div><div>${q}</div></div>`).join('') : '<p class="muted">لا توجد بيانات</p>';
