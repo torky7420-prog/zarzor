@@ -1159,6 +1159,12 @@ async function paySupplier(id){
   if(cloudDB){ try{ await cloudDB.collection('suppliers').doc(id).update({paid,remaining,payments}); }catch(e){ alert('تعذر التحديث'); } }
   else{ s.paid=paid; s.remaining=remaining; s.payments=payments; saveLocal(); renderSuppliers(); }
 }
+async function deleteSupplier(id){
+  const s=suppliers.find(x=>x.id===id); if(!s) return;
+  if(!confirm('حذف فاتورة "'+s.supplier+'" (إجمالي '+s.total.toFixed(2)+')؟\nهتتحذف الفاتورة ومدفوعاتها بس، والمخزون والمبيعات والمصاريف هيفضلوا زي ما هما.')) return;
+  try{ await dbDelete('suppliers',id,suppliers); }catch(e){ alert('تعذر الحذف'); return }
+  renderSuppliers();
+}
 function openOldSupForm(){ ['oldSupName','oldSupTotal'].forEach(id=>document.getElementById(id).value=''); document.getElementById('oldSupPaid').value=0; openOverlay('oldSupOverlay'); }
 async function saveOldSup(){
   const supplier=document.getElementById('oldSupName').value.trim()||'دين قديم';
@@ -1180,7 +1186,7 @@ function renderSuppliers(){
     const items=s.items||(s.product?[{name:s.product,qty:s.qty}]:[]);
     const itemsTxt=items.map(i=>`${escapeHtml(i.name)}×${i.qty}`).join('، ')||'—';
     return `<div class="list-item"><div class="meta"><div class="n">${escapeHtml(s.supplier)} ${s.old?'<span class="badge">دين قديم</span>':''}</div><div class="s">${itemsTxt}</div><div class="s">الإجمالي ${s.total.toFixed(2)} • مدفوع ${s.paid.toFixed(2)} • <b style="color:var(--danger)">متبقي ${s.remaining.toFixed(2)}</b></div></div>
-    ${s.remaining>0?`<button class="btn-p" onclick="paySupplier('${s.id}')">تسجيل دفعة</button>`:'<span class="badge">مسدد بالكامل</span>'}
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${s.remaining>0?`<button class="btn-p" onclick="paySupplier('${s.id}')">تسجيل دفعة</button>`:'<span class="badge">مسدد بالكامل</span>'}<button class="btn-o" style="color:var(--danger)" onclick="deleteSupplier('${s.id}')">🗑️ حذف</button></div>
     </div>`;
   }).join('') : '<p class="muted">لا توجد توريدات بعد</p>';
 }
