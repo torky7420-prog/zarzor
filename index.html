@@ -88,10 +88,11 @@ button{cursor:pointer;border:none;border-radius:8px;padding:10px 12px;font-weigh
   <div class="menu-item mgr-only" onclick="go('suppliers')"><span>🚚 الموردون</span></div>
   <div class="menu-item mgr-only" onclick="go('reports')"><span>📈 التقارير</span></div>
   <div class="menu-item mgr-only" onclick="go('audit')"><span>✅ جرد المخزون</span></div>
-  <div class="menu-item mgr-only" onclick="exportBackup()"><span>⬇️ تصدير نسخة احتياطية</span></div>
+  <div class="menu-item mgr-only" onclick="exportBackup()"><span>⬇️ المستشار</span></div>
   <div class="menu-item mgr-only" onclick="triggerImport()"><span>⬆️ استيراد نسخة احتياطية</span></div>
   <div class="menu-item mgr-only" onclick="setPin()"><span>🔑 تعيين رمز الخروج من وضع الكاشير</span></div>
   <div class="menu-item mgr-only" onclick="shareSetupLink()"><span>🔗 رابط إعداد للموظف</span></div>
+  <div class="menu-item" style="opacity:.6;font-size:12px"><span>الإصدار 14 — التصدير الكامل ✔️</span></div>
   <div class="menu-item" onclick="if(window.fbAuth)fbAuth.signOut()"><span>🚪 تسجيل الخروج</span></div>
 </nav>
 <input type="file" id="importInput" accept="application/json" style="display:none" onchange="handleImport(event)">
@@ -698,7 +699,7 @@ async function toggleRole(){
   }
 }
 async function exportBackup(){
-  const payload=JSON.stringify({products,sales,exportedAt:new Date().toISOString()},null,2);
+  const payload=JSON.stringify({products,sales,expenses,withdrawals,suppliers,debts,shifts,audits,exportedAt:new Date().toISOString()},null,2);
   if(downloadsCap){
     try{ await downloadsCap.save({filename:'zarzor-backup-'+new Date().toISOString().slice(0,10)+'.json', data:payload}); }
     catch(e){ if(e&&e.code!=='declined') alert('تعذر حفظ الملف'); }
